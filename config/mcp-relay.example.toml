@@ -1,0 +1,69 @@
+# 公网 MCP 透传代理的配置设计样例，尚无对应运行程序。
+# 部署时复制为 config/mcp-relay.toml，并替换域名、设备和授权主体。
+# 相对文件路径统一相对于项目根目录，不受当前工作目录影响。
+config_version = 1
+
+[process]
+pid_file = "runtime/mcp-relay.pid"
+startup_timeout = "20s"
+shutdown_timeout = "30s"
+
+[log]
+level = "info"                      # debug / info / warn / error
+format = "text"                     # 固定可读文本，不使用 JSON Lines
+file = "runtime/logs/mcp-relay.log"
+console = false                     # 前台调试时可以开启
+max_size_mb = 20                    # 单个文件上限，按 MiB 计算
+max_backups = 10                    # 历史文件数量，不包含当前文件
+compress = true                     # 历史日志压缩，不改变保留数量
+timezone = "Asia/Shanghai"
+
+[storage]
+sqlite_file = "runtime/data/mcp-relay.sqlite"
+busy_timeout = "5s"                 # 实现时固定启用 WAL
+terminal_retention_days = 7         # 只清理终态调用记录、已投递事件等
+cleanup_interval = "1h"
+
+[server]
+listen = "127.0.0.1:8787"            # 默认由 Nginx/Caddy 在外层终结 HTTPS
+public_base_url = "https://mcp.example.com"
+trusted_proxies = ["127.0.0.1/32", "::1/128"]
+read_header_timeout = "10s"
+idle_timeout = "90s"
+max_body_mb = 16
+
+[server.tls]
+enabled = false                     # 直接由 Go 提供 HTTPS 时开启
+cert_file = ""
+key_file = ""
+
+[mcp]
+path_prefix = "/mcp"                # 每个设备使用 /mcp/{device_id}
+call_timeout = "90s"
+session_idle_timeout = "30m"
+
+[mcp.auth]
+mode = "oauth"                      # 首版公网认证方案：OAuth 资源服务器
+issuer_url = "https://auth.example.com"
+required_scopes = ["mcp:tools"]
+jwks_cache_ttl = "10m"              # 使用支持发现与 JWT 验证的授权服务
+
+[tunnel]
+path = "/agent"                     # 本地网关连接 wss://域名/agent
+handshake_timeout = "10s"
+ping_interval = "15s"
+pong_timeout = "45s"
+max_inflight_per_device = 16         # RPC 数量上限，不是网页任务并发数
+
+[[devices]]
+id = "local-01"
+token_env = "GPTWEB2API_DEVICE_TOKEN" # 本地网关 relay.token_env 引用相同值
+allowed_subjects = ["REPLACE_WITH_OAUTH_SUBJECT"]
+
+[events]
+enabled = false                     # Dot 事件后端需要开启，并完成能力验证
+encryption_key_env = "GPTWEB2API_RELAY_DATA_KEY"
+delivery_timeout = "10s"
+retry_min = "1s"
+retry_max = "1m"
+max_attempts = 8
