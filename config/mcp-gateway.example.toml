@@ -17,14 +17,6 @@ timeout = "30m"                    # 总期限，包含排队、执行和等待�
 
 [dots]
 enabled = false
-dot_id = ""                        # 开启时填写；同一 Dot 固定串行执行
-
-[[workspaces]]
-id = "default"
-root = "/absolute/path/to/your/project"
-chatgpt_project_id = ""             # 空为普通聊天；非空必须校验项目归属
-read_only = false
-allow_commands = false
 
 [log]
 max_size_mb = 20

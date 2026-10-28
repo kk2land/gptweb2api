@@ -65,17 +65,33 @@ Go 只监听回环地址，不用客户端可伪造的转发头做认证、设�
 | server | listen、api_key | Nginx 上游地址及调用认证 |
 | relay | url、device_id、token | 公网中继连接 |
 | tasks | max_concurrency、queue_capacity、timeout | 并发资源、积压和任务总期限 |
-| dots | enabled、dot_id | 是否开放 dots 及使用哪个 Dot |
-| workspaces | id、root、chatgpt_project_id、read_only、allow_commands | 本地授权目录、网页项目和操作权限 |
+| dots | enabled | 是否开放 dots |
 | log | max_size_mb、max_backups | 日志大小与数量 |
 
-首版按个人自用场景使用一个 API key，它有权访问本地配置登记的项目及已启用模型。更细的多调用方权限不提前引入。真实 key 和 token 由部署配置填写，样例仅为占位符，实际配置不提交到仓库；缺失或仍是占位值时拒绝启动。
+首版按个人自用场景使用一个 API key，持有者可提交工作目录与可选 ChatGPT 项目，并调用已启用模型。更细的多调用方权限不提前引入。真实 key 和 token 由部署配置填写，样例仅为占位符，实际配置不提交到仓库；缺失或仍是占位值时拒绝启动。
 
-max_concurrency 决定活动执行槽及受管 Space 数量，每个活动槽独占一个 Space，同一会话串行。dots 同样占用全局额度；同一个 Dot 固定最多一个活动任务，不再单独配置 Dot 并发。
+max_concurrency 决定活动执行槽及受管 Space 数量，每个活动槽独占一个 Space，同一会话串行。dots 同样占用全局额度；执行身份由有效的 MCP 事件订阅和任务领取记录确定，写入运行状态，无需手工配置 Dot 标识。同一运行时 Dot 身份固定最多一个活动任务。
 
 timeout 是唯一的业务任务期限，从接收请求开始计时，包含排队、执行、审批与补交结果。连接断开后任务固定继续执行到完成或期限结束，可凭任务 ID 查询；取消必须显式请求，不提供断开策略开关。排队满则返回限流错误，不再另配排队超时和同步等待期限。
 
-workspace.root 必须是已经存在的已授权目录，启动时规范化并检查；read_only 时不得同时允许命令。内部冒烟区由程序按固定路径创建，不额外登记为可供 API 使用的 workspace。chatgpt_project_id 为空使用普通聊天，非空则发送前校验项目归属。
+本地工作目录与 ChatGPT 项目作为每次 API 请求的扩展参数提供，不预先登记项目清单。例如：
+
+```json
+{
+  "model": "web/gpt-6",
+  "messages": [
+    {"role": "user", "content": "读取 README，说明项目用途"}
+  ],
+  "x_gptweb2api": {
+    "workdir": "/absolute/path/to/project",
+    "chatgpt_project_id": ""
+  }
+}
+```
+
+workdir 用于文件和命令的本地工作目录，必须是已经存在的绝对目录，接收请求时规范化并绑定到本轮凭据。未提供时允许纯聊天，但不能调用本地文件和命令工具；不得从提示词猜测目录或使用进程的当前目录。该目录由经过 API key 认证的调用方提交，网页模型不能在工具参数中另换目录或扩大路径范围。
+
+chatgpt_project_id 为可选项，空或省略使用普通聊天，非空则发送前校验网页项目归属。续聊不能在原会话中静默改变已绑定的工作目录或项目，应明确拒绝不一致的请求，或由调用方新建会话。命令执行沿用固定策略，首版默认不开放任意命令；不再添加逐项目的权限配置。内部冒烟区由程序按固定路径创建。
 
 ## 4. 固定约定
 
@@ -107,6 +123,6 @@ workspace.root 必须是已经存在的已授权目录，启动时规范化并�
 
 只读取两份 TOML，不增加配置版本字段、通用环境变量插值、覆盖层或热重载。缺省使用少量内置默认值；未知字段、重复 ID、无效时长、非正的并发/日志限制和错误引用明确报错，变更经排空与重启生效。
 
-两端的设备 ID 与 token 必须相同。gateway 的 relay URL 指向 WSS，relay 的 public_base_url 使用 HTTPS；Go 监听地址必须为回环地址。已启用的 dots 要求有效 Dot ID 和完整后端准备，未开启时无需填写 dot_id。
+两端的设备 ID 与 token 必须相同。gateway 的 relay URL 指向 WSS，relay 的 public_base_url 使用 HTTPS；Go 监听地址必须为回环地址。已启用的 dots 要求有效事件订阅与完整后端准备，不要求手工填写 Dot 标识。工作目录与网页项目在接收任务时校验，启动阶段不再要求配置项目清单。
 
 两个 TOML 的语法及设备引用已检查。实际配置加载、OAuth、Nginx、Ego、进程控制和运行验证仍待实现。
