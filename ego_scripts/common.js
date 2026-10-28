@@ -13,25 +13,9 @@ async function ensureTaskSpace(input) {
     return b;
   }
   if(typeof input.space_name!=='string'||!input.space_name.trim())fail('space_name_required');
-  const named=spaces.filter(s=>s.name===input.space_name);
-  const matches=input.profile_id?named.filter(s=>s.profileId===input.profile_id):named;
-  if(matches.length>1)fail('space_name_ambiguous');
-  if(!matches.length&&named.length)fail('profile_mismatch');
-  let id;
-  if(matches.length){
-    if(!input.reuse_space)fail('space_requires_reconciliation');
-    const space=matches[0];
-    if(space.ownership==='user'){
-      // An explicit configured name authorizes use of that regular Space.
-      // Omit the optional name argument so the browser never renames it.
-      const claimed=checked(await ego.claimTaskSpace(space.id));
-      if(claimed.id!==space.id)fail('space_binding_changed');
-    }else if(space.ownership!=='agent')fail('space_user_in_control');
-    id=space.id;
-  }else{
-    const created=checked(input.profile_id?await ego.createTaskSpace(input.space_name,input.profile_id):await ego.createTaskSpace(input.space_name));
-    id=created.id;
-  }
+  if(spaces.some(s=>s.name===input.space_name))fail('space_requires_reconciliation');
+  const created=checked(input.profile_id?await ego.createTaskSpace(input.space_name,input.profile_id):await ego.createTaskSpace(input.space_name));
+  const id=created.id;
   spaces=checked(await ego.listTaskSpaces()).taskSpaces;
   const space=spaces.find(s=>s.id===id);
   if(!Number.isSafeInteger(id)||id<=0||!space?.profileId||space.ownership!=='agent')fail('space_identity_unverified');

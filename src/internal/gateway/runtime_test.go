@@ -31,10 +31,12 @@ func TestConfigStrictAndSecretSafe(t *testing.T) {
 	}{
 		{"valid", good, true}, {"placeholders", string(b), false}, {"unknown", good + "\nunknown_field=1\n", false}, {"public listen", strings.Replace(good, "127.0.0.1", "0.0.0.0", 1), false}, {"zero concurrency", strings.Replace(good, "max_concurrency = 2", "max_concurrency = 0", 1), false}, {"invalid duration", strings.Replace(good, `timeout = "30m"`, `timeout = "never"`, 1), false}, {"wrong field type", strings.Replace(good, `api_key = "client-local-test"`, `api_key = 123`, 1), false}, {"parse secret", strings.Replace(good, `"runtime-local-test"`, `runtime-secret-do-not-print`, 1), false},
 		{"legacy config without ego", withoutEgo, true},
-		{"named Space", strings.Replace(good, `space_name = ""`, `space_name = "我的 Space"`, 1), true},
-		{"wrong Space type", strings.Replace(good, `space_name = ""`, `space_name = 123`, 1), false},
-		{"Space control character", strings.Replace(good, `space_name = ""`, `space_name = "one\ntwo"`, 1), false},
-		{"Space name too long", strings.Replace(good, `space_name = ""`, `space_name = "`+strings.Repeat("界", 129)+`"`, 1), false},
+		{"named app", strings.Replace(good, `app_name = ""`, `app_name = "my-ego"`, 1), true},
+		{"wrong app type", strings.Replace(good, `app_name = ""`, `app_name = 123`, 1), false},
+		{"app control character", strings.Replace(good, `app_name = ""`, `app_name = "one\ntwo"`, 1), false},
+		{"app leading control character", strings.Replace(good, `app_name = ""`, `app_name = "\napp"`, 1), false},
+		{"app name too long", strings.Replace(good, `app_name = ""`, `app_name = "`+strings.Repeat("界", 129)+`"`, 1), false},
+		{"removed Space option", strings.Replace(good, `app_name = ""`, `space_name = "wrong-setting"`, 1), false},
 		{"unknown ego option", strings.Replace(good, "[ego]", "[ego]\nunknown_option=true", 1), false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -48,8 +50,11 @@ func TestConfigStrictAndSecretSafe(t *testing.T) {
 			if err != nil && (strings.Contains(err.Error(), "runtime-secret") || strings.Contains(err.Error(), "runtime-local-test") || strings.Contains(err.Error(), "client-local-test")) {
 				t.Fatal("credential appeared in error")
 			}
-			if test.name == "named Space" && cfg.Ego.SpaceName != "我的 Space" {
-				t.Fatal("configured Space name was not loaded")
+			if test.name == "named app" && cfg.Ego.AppName != "my-ego" {
+				t.Fatal("configured app name was not loaded")
+			}
+			if test.name == "removed Space option" && (err == nil || !strings.Contains(err.Error(), "ego.app_name")) {
+				t.Fatal("old Space setting did not explain the replacement")
 			}
 		})
 	}

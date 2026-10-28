@@ -41,24 +41,26 @@ Nginx 继续提供兼容 API 的 HTTPS 入口，转发给本机 HTTP。ChatGPT �
 | server | listen、api_key | Nginx 上游地址、调用方认证 |
 | tunnel | id、api_key | OpenAI Tunnel ID、runtime API key |
 | tasks | max_concurrency、queue_capacity、timeout | Space 并发、等待队列和任务总期限 |
-| ego（可选） | space_name | 指定 Space 基础名称；空值沿用默认命名 |
+| ego（可选） | app_name | 指定 Ego 浏览器实例/服务名；空值使用默认实例 |
 | dots | enabled | 是否开放已完成事件验收的 dots 模型 |
 | log | max_size_mb、max_backups | 日志大小与历史份数 |
 
 两处 api_key 是不同凭据：server.api_key 给 API 调用方使用，tunnel.api_key 仅供内嵌 SDK 访问 OpenAI 控制面，不能互换。实际值由部署配置填写，不提交仓库、不写提示词或日志。缺失或仍为占位符时拒绝启动。
 
-只读取这一份 TOML。未知字段、错误类型、非正限制和无效时长明确报错；不增加隐藏环境变量、TLS、PID、路径、设备路由、OAuth issuer 或高级覆盖层配置，变更经排空与重启生效。Ego 仅增加用户要求的可选 Space 名称，不开放 CLI、脚本路径或 Profile 覆盖配置。
+只读取这一份 TOML。未知字段、错误类型、非正限制和无效时长明确报错；不增加隐藏环境变量、TLS、PID、路径、设备路由、OAuth issuer 或高级覆盖层配置，变更经排空与重启生效。Ego 仅提供用户要求的可选 app name，不开放 CLI 路径、脚本路径、Space 名称或 Profile 覆盖配置。
 
 ```toml
 [ego]
-space_name = "我的 Space"
+app_name = "app-a"
 ```
 
-名称去除首尾空白后最多 128 个字符，不允许控制字符。首槽使用原名，其余槽追加 `-1`、`-2`，每个活动槽仍独占一个不同的数字 Space ID。单 Space 使用场景将 `tasks.max_concurrency` 设为 1。
+app name 是 Ego 原生服务的实例名，去除首尾空白后最多 128 个字符，不允许控制字符。非空时，每次 Ego 调用均为 `ego-browser --ego-server-name=<app_name> nodejs`；通过独立进程参数传值，不拼接 shell，也不使用 `EGO_BROWSER_NAME` 环境变量代替实例路由。普通任务、轻量探测、完整冒烟、取消清理和 Dot Space 预留共用同一实例设置。
 
-指定名称时，在已绑定 Profile 范围内匹配唯一同名 Space；首次尚未绑定 Profile 时，名称必须能唯一定位。普通用户 Space 经原生 `claimTaskSpace(id)` 取得控制，保留其名称和标签页；代理 Space 直接复用。选择后持久化数字 ID，显示名被修改不会导致任务转到另一个同名 Space。用户接管后不自动夺回控制；重名、身份不符或多个槽返回同一 ID 均明确失败。
+省略本节或 `app_name = ""` 时使用默认的 `ego-browser nodejs`。指定服务不可用时返回未就绪或明确失败，不尝试默认实例或其他 app。目标 Ego 必须预先运行并注册同名服务；上游浏览器启动端使用 `--startup-ego-browser-service=<app_name>`，CLI 端使用 `--ego-server-name=<app_name>`，见 [上游实例连接说明](https://github.com/citrolabs/ego-lite/issues/150)。
 
-省略本节或 `space_name = ""` 保留兼容默认值：`gptweb2api-slot-0`、`gptweb2api-slot-1`。这不是自动选择 Ego 当前窗口；使用浏览器已有的默认 Space 时应填其实际显示名。改变配置并重启后清除旧槽的页面路由，保留账号/插件身份，按新名称重新定位，不重命名或删除旧 Space。
+app name 与数字 Space/Page/Profile/插件标识一起持久化。切换实例时，在同一 SQLite 事务中记录新实例并使原网页会话失效，丢弃旧实例的所有浏览器标识；历史记录保留，调用方使用新会话。相同实例重启仍核对旧页面，不自动重发原任务。
+
+Space 名称恢复为固定的 `gptweb2api-slot-0`、`gptweb2api-slot-1`，每个活动槽独占不同的数字 Space ID。上一版误加的 `[ego].space_name` 已移除；存在该配置时明确提示改用 `ego.app_name`，不会将它当作 app 名称静默使用。
 
 ## 4. Tunnel 初次接入
 

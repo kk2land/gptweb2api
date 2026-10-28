@@ -22,16 +22,16 @@ sh sbin/mcp-gateway.sh restart
 
 脚本从自身位置确定项目根目录；二进制固定放在 `bin/`。配置只读取 `config/mcp-gateway.toml`，不提供环境变量覆盖或第二套高级配置。未知字段、占位符、无效期限和非回环监听均拒绝启动。修改配置后排空并重启。直接运行二进制时应使用绝对路径，以便启停脚本通过 `ps` 校验进程命令与启动时间。
 
-Ego Space 名称可以在同一份 TOML 中配置：
+Ego 浏览器实例的 app name（原生服务名）可以在同一份 TOML 中配置：
 
 ```toml
 [ego]
-space_name = "我的 Space"
+app_name = "app-a"
 ```
 
-首个槽使用 `我的 Space`，后续并发槽使用 `我的 Space-1`、`我的 Space-2`。存在唯一同名 Space 时复用其 ID，不存在时创建；普通用户 Space 会在首次选用时转为代理控制，保留名称与已有标签页。重名无法唯一定位、Profile 不匹配或用户接管已绑定 Space 时停止操作，不改用其他 Space。只需一个 Space 时设 `tasks.max_concurrency = 1`。
+设置后，所有网页操作、探测、清理和 Dot Space 预留都通过 `ego-browser --ego-server-name=app-a nodejs` 连接同一个实例。需先启动注册了相同服务名的 Ego；浏览器启动端对应 `--startup-ego-browser-service=app-a`，CLI 使用 `--ego-server-name=app-a`。这两个参数的区别见 [上游实例连接说明](https://github.com/citrolabs/ego-lite/issues/150)。网关不负责启动浏览器。
 
-省略 `[ego]` 或将 `space_name` 留空，沿用原来的默认名称 `gptweb2api-slot-0`、`gptweb2api-slot-1`，不会自动猜测 Ego 当前窗口。要使用 Ego 中已有的默认 Space，填写它实际显示的名称。更改名称后排空并重启，重新选择 Space，不沿用旧槽的页面 ID；之前的 Space 不会被重命名或删除。
+省略 `[ego]` 或将 `app_name` 留空，使用 `ego-browser nodejs` 连接默认实例。指定实例不可用时明确失败，不回退到默认实例。切换 app name 后排空并重启，旧实例的 Space/Page/Profile/插件绑定清除，旧网页会话失效，需新建 API 会话；原历史和原浏览器标签页保留。Space 名称固定为 `gptweb2api-slot-0`、`gptweb2api-slot-1` 等，由网关管理，不再提供 `space_name` 配置。
 
 Nginx 配置参考 [nginx.example.conf](config/nginx.example.conf)，放入已有的 HTTPS server 块。Go 只监听回环 HTTP；MCP 不经 Nginx，没有另开的 MCP 端口、relay 或 stdio MCP 子进程。
 

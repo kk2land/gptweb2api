@@ -8,7 +8,7 @@
 
 目录与 Ego 调用方式采用固定约定，不提供 TOML 配置。路径相对于项目根目录；所需脚本缺失时停止相关能力，不能静默切换实现。
 
-Space 名称由可选 `[ego].space_name` 提供，通过结构化参数输入脚本；不改变脚本目录或 CLI。非空时首槽使用指定名称，后续槽追加 `-1`、`-2`；唯一同名 Space 可复用，普通用户 Space 首次选用时按 ID 取得代理控制且不改名。空值沿用 `gptweb2api-slot-0`、`-1` 的默认命名。绑定后以数字 ID 为准，重名、Profile 不匹配或用户接管时停止。
+可选 `[ego].app_name` 在 Go 的 CLI 适配层选择浏览器实例：非空时调用 `ego-browser --ego-server-name=<app_name> nodejs`，空值调用 `ego-browser nodejs`。所有脚本共用这个实例，不把 app name 当作 Space 名称。Space 固定使用 `gptweb2api-slot-0`、`-1` 等槽名，持久化数字 ID；用户接管或身份不匹配时停止。
 
 ## 适用范围
 
@@ -18,7 +18,7 @@ Space 名称由可选 `[ego].space_name` 提供，通过结构化参数输入脚
 
 | 文件 | 职责 |
 | --- | --- |
-| `common.js` | Native EgoBindings、Space 名称解析/ID 绑定、CDP、结构化参数、页面观察与严格预检 |
+| `common.js` | Native EgoBindings、Space 创建/ID 绑定、CDP、结构化参数、页面观察与严格预检 |
 | `dot-space.js` | 只预留/验证 Space，不操作 Dot 的页面、项目或原生会话 |
 | `prepare-page.js` | 在已绑定 Space 中创建/验证标签页，先持久化身份再导航 |
 | `probe.js` | 检查浏览器、登录态、输入框与必要控件 |

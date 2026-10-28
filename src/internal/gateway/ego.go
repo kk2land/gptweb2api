@@ -76,9 +76,9 @@ type EgoResult struct {
 type ScriptRunner interface {
 	Call(context.Context, *ScriptSet, string, map[string]any) (EgoResult, error)
 }
-type CLIRunner struct{}
+type CLIRunner struct{ AppName string }
 
-func (CLIRunner) Call(ctx context.Context, s *ScriptSet, op string, input map[string]any) (EgoResult, error) {
+func (r CLIRunner) Call(ctx context.Context, s *ScriptSet, op string, input map[string]any) (EgoResult, error) {
 	var result EgoResult
 	code, ok := s.files[op+".js"]
 	if !ok {
@@ -91,7 +91,11 @@ func (CLIRunner) Call(ctx context.Context, s *ScriptSet, op string, input map[st
 	// Base64 is data, never shell text or an interpolated JavaScript expression.
 	marker := randomID("GPTWEB_RESULT_") + ":"
 	source := "(async()=>{\n" + s.files["common.js"] + "\n" + code + "\nconst input=JSON.parse(Buffer.from(\"" + base64.StdEncoding.EncodeToString(b) + "\",\"base64\").toString(\"utf8\"));\ntry { const result=await operation(input); console.log(" + jsString(marker) + "+JSON.stringify({...result,operation:" + jsString(op) + "})); } catch(e) { console.log(" + jsString(marker) + "+JSON.stringify({ok:false,operation:" + jsString(op) + ",error_code:e.code||e.error_code||\"ego_operation_failed\"})); }\n})();\n"
-	cmd := exec.CommandContext(ctx, "ego-browser", "nodejs")
+	args := []string{"nodejs"}
+	if r.AppName != "" {
+		args = append([]string{"--ego-server-name=" + r.AppName}, args...)
+	}
+	cmd := exec.CommandContext(ctx, "ego-browser", args...)
 	cmd.Stdin = strings.NewReader(source)
 	cmd.WaitDelay = 2 * time.Second
 	out := &limitedOutput{limit: 1024 * 1024}
@@ -129,20 +133,21 @@ type EgoExecutor struct {
 	pluginID     string
 	store        *Store
 	slotRequests map[int]string
-	spaceName    string
+	appName      string
 }
 
-func NewEgo(root string, log *slog.Logger, spaceName string) *EgoExecutor {
-	return &EgoExecutor{Root: root, Runner: CLIRunner{}, Log: log, slots: map[int]Binding{}, quarantined: map[int]bool{}, slotRequests: map[int]string{}, spaceName: spaceName}
+func NewEgo(root string, log *slog.Logger, appName string) *EgoExecutor {
+	return &EgoExecutor{Root: root, Runner: CLIRunner{AppName: appName}, Log: log, slots: map[int]Binding{}, quarantined: map[int]bool{}, slotRequests: map[int]string{}, appName: appName}
 }
 
 type egoState struct {
-	Profile     string
-	Slots       map[int]Binding
-	Quarantined map[int]bool
-	Requests    map[int]string
-	PluginID    string
-	SpaceName   string
+	Profile         string
+	Slots           map[int]Binding
+	Quarantined     map[int]bool
+	Requests        map[int]string
+	PluginID        string
+	AppName         string
+	LegacySpaceName string `json:"SpaceName,omitempty"`
 }
 
 func (e *EgoExecutor) Restore(store *Store) error {
@@ -164,11 +169,22 @@ func (e *EgoExecutor) Restore(store *Store) error {
 	if state.Slots == nil || state.Quarantined == nil || state.Requests == nil {
 		return fmt.Errorf("invalid persisted Ego identity")
 	}
+	if state.AppName != e.appName {
+		// Numeric Space/page IDs and Profile/plugin IDs are local to an app.
+		// Invalidate web sessions in the same transaction as the new app identity.
+		e.profile = ""
+		e.pluginID = ""
+		e.slots = map[int]Binding{}
+		e.quarantined = map[int]bool{}
+		e.slotRequests = map[int]string{}
+		return e.persistLocked(true)
+	}
 	e.profile = state.Profile
 	e.pluginID = state.PluginID
-	if state.SpaceName != e.spaceName {
-		// A new selector must not silently keep using the previous Space/page.
-		// Preserve the account/plugin identity; leave previous browser tabs alone.
+	if state.LegacySpaceName != "" {
+		e.slots = map[int]Binding{}
+		e.quarantined = map[int]bool{}
+		e.slotRequests = map[int]string{}
 		return e.saveLocked()
 	}
 	e.slots, e.quarantined, e.slotRequests = state.Slots, state.Quarantined, state.Requests
@@ -180,29 +196,35 @@ func (e *EgoExecutor) Restore(store *Store) error {
 	return nil
 }
 func (e *EgoExecutor) saveLocked() error {
+	return e.persistLocked(false)
+}
+func (e *EgoExecutor) persistLocked(invalidateSessions bool) error {
 	if e.store == nil {
 		return nil
 	}
-	b, err := json.Marshal(egoState{Profile: e.profile, Slots: e.slots, Quarantined: e.quarantined, Requests: e.slotRequests, PluginID: e.pluginID, SpaceName: e.spaceName})
+	b, err := json.Marshal(egoState{Profile: e.profile, Slots: e.slots, Quarantined: e.quarantined, Requests: e.slotRequests, PluginID: e.pluginID, AppName: e.appName})
 	if err != nil {
 		return err
 	}
-	_, err = e.store.db.Exec(`INSERT INTO runtime_state VALUES('ego',?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload`, b)
-	return err
+	tx, err := e.store.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if invalidateSessions {
+		if _, err = tx.Exec(`UPDATE sessions SET payload=json_set(payload,'$.valid',json('false'))`); err != nil {
+			return err
+		}
+	}
+	if _, err = tx.Exec(`INSERT INTO runtime_state VALUES('ego',?) ON CONFLICT(name) DO UPDATE SET payload=excluded.payload`, b); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 func (e *EgoExecutor) base(slot int) map[string]any {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return map[string]any{"slot": slot, "binding": e.slots[slot], "profile_id": e.profile, "space_name": e.nameForSlot(slot), "reuse_space": e.spaceName != "", "request_id": e.slotRequests[slot], "plugin_id": e.pluginID}
-}
-func (e *EgoExecutor) nameForSlot(slot int) string {
-	if e.spaceName == "" {
-		return fmt.Sprintf("gptweb2api-slot-%d", slot)
-	}
-	if slot == 0 {
-		return e.spaceName
-	}
-	return fmt.Sprintf("%s-%d", e.spaceName, slot)
+	return map[string]any{"slot": slot, "binding": e.slots[slot], "profile_id": e.profile, "space_name": fmt.Sprintf("gptweb2api-slot-%d", slot), "request_id": e.slotRequests[slot], "plugin_id": e.pluginID}
 }
 func callBound(ctx context.Context, runner ScriptRunner, s *ScriptSet, op string, input map[string]any) (EgoResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)

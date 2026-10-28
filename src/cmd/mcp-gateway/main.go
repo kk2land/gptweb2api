@@ -213,7 +213,7 @@ func run() error {
 		return err
 	}
 	defer store.Close()
-	ego := gateway.NewEgo(root, logger, cfg.Ego.SpaceName)
+	ego := gateway.NewEgo(root, logger, cfg.Ego.AppName)
 	if err = ego.Restore(store); err != nil {
 		return err
 	}

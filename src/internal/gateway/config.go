@@ -31,7 +31,7 @@ type Config struct {
 		Timeout        string `toml:"timeout"`
 	} `toml:"tasks"`
 	Ego struct {
-		SpaceName string `toml:"space_name"`
+		AppName string `toml:"app_name"`
 	} `toml:"ego"`
 	Dots struct {
 		Enabled bool `toml:"enabled"`
@@ -53,6 +53,9 @@ func LoadConfig(root string) (Config, error) {
 	if err != nil {
 		// Parser errors can contain the input line, including a secret.
 		return c, errors.New("invalid TOML in config/mcp-gateway.toml (check field types and syntax)")
+	}
+	if md.IsDefined("ego", "space_name") {
+		return c, errors.New("ego.space_name is no longer supported; use ego.app_name to select the browser instance")
 	}
 	if len(md.Undecoded()) != 0 {
 		return c, errors.New("unknown configuration field")
@@ -88,9 +91,12 @@ func LoadConfig(root string) (Config, error) {
 	if c.Log.MaxSizeMB > 1<<20 || c.Log.MaxBackups > 10000 || c.Tasks.MaxConcurrency > 1024 || c.Tasks.QueueCapacity > 100000 {
 		return c, errors.New("task or log limit exceeds implementation capacity")
 	}
-	c.Ego.SpaceName = strings.TrimSpace(c.Ego.SpaceName)
-	if !utf8.ValidString(c.Ego.SpaceName) || utf8.RuneCountInString(c.Ego.SpaceName) > 128 || strings.ContainsFunc(c.Ego.SpaceName, unicode.IsControl) {
-		return c, errors.New("ego.space_name must be at most 128 characters without control characters")
+	if !utf8.ValidString(c.Ego.AppName) || strings.ContainsFunc(c.Ego.AppName, unicode.IsControl) {
+		return c, errors.New("ego.app_name must be at most 128 characters without control characters")
+	}
+	c.Ego.AppName = strings.TrimSpace(c.Ego.AppName)
+	if utf8.RuneCountInString(c.Ego.AppName) > 128 {
+		return c, errors.New("ego.app_name must be at most 128 characters without control characters")
 	}
 	c.TaskTimeout, err = time.ParseDuration(c.Tasks.Timeout)
 	if err != nil || c.TaskTimeout <= 0 {
