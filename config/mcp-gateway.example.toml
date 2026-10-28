@@ -16,7 +16,7 @@ queue_capacity = 20                # 等待队列上限，不含活动任务
 timeout = "30m"                    # 总期限，包含排队、执行和等待审批
 
 [dots]
-enabled = false
+enabled = false                  # 不提供 ChatGPT 项目或原生会话切换
 
 [log]
 max_size_mb = 20
