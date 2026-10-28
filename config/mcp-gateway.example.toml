@@ -1,120 +1,31 @@
-# 本地 MCP 执行器 + OpenAI API 网关的配置设计样例，尚无对应运行程序。
-# 部署时复制为 config/mcp-gateway.toml；密钥通过指定环境变量提供。
-# 相对文件路径相对于项目根目录；workspace.root 也可填写绝对路径。
-config_version = 1
+# 本地 MCP + API 网关：前面固定使用 Nginx，Go 只监听本机 HTTP。
+# 配置设计样例，部署时复制为 mcp-gateway.toml 并填写实际值。
 
-[process]
-pid_file = "runtime/mcp-gateway.pid"
-startup_timeout = "30s"
-shutdown_timeout = "60s"
-
-[log]
-level = "info"
-format = "text"                     # 可读文本，不使用一行一个 JSON
-file = "runtime/logs/mcp-gateway.log"
-console = false
-max_size_mb = 20
-max_backups = 10                    # 当前文件 + 最多 10 个历史文件
-compress = true
-timezone = "Asia/Shanghai"
-
-[storage]
-sqlite_file = "runtime/data/mcp-gateway.sqlite"
-busy_timeout = "5s"                 # 实现时固定启用 WAL
-terminal_retention_days = 7         # 只清理终态任务，不删除活动任务
-cleanup_interval = "1h"
-
-[api]
+[server]
 listen = "127.0.0.1:8788"
-read_header_timeout = "10s"
-max_body_mb = 16
-wait_timeout = "10m"                # API 等待期限，不是任务总执行期限
-sse_ping_interval = "15s"
-
-[[api.keys]]
-name = "local-client"
-token_env = "GPTWEB2API_API_KEY"
-allowed_models = ["web/gpt-6", "web/gpt-5.6-sol", "dots"]
-allowed_workspaces = ["default"]    # dots 仍受 dots.enabled 总开关限制
+api_key = "REPLACE_WITH_API_KEY"
 
 [relay]
 url = "wss://mcp.example.com/agent"
 device_id = "local-01"
-token_env = "GPTWEB2API_DEVICE_TOKEN"
-dial_timeout = "10s"
-reconnect_min = "1s"
-reconnect_max = "30s"
-proxy_url = ""                      # 空为直连；只影响本进程出站连接
-
-[mcp]
-plugin_name = "gptweb2api"
-call_timeout = "80s"                # 应小于公网 relay 的 call_timeout
-max_result_bytes = 4194304          # 单次工具或最终答案的大小上限，4 MiB
-
-[scheduler]
-max_concurrency = 2                 # 活动执行槽数量，也是受管 Space 池大小
-queue_capacity = 20                 # 等待中的任务上限，不含活动任务
-queue_wait_timeout = "5m"
+token = "REPLACE_WITH_DEVICE_TOKEN" # 与公网代理中对应设备的 token 一致
 
 [tasks]
-run_timeout = "30m"                 # 从占用执行槽开始计时
-disconnect_policy = "continue"      # continue / cancel；API 连接断开后的行为
-completion_retry_window = "5m"      # 成功提交后允许相同结果重复确认的窗口
-max_completion_reminders = 1         # 只补交结果，不重新执行原任务
-
-[ego]
-executable = "ego-browser"          # 可填绝对路径；否则在 PATH 中查找
-profile_id = "REPLACE_WITH_EGO_PROFILE_ID"
-space_prefix = "gptweb2api-worker"   # 两个槽派生不同 Space，绑定持久化
-scripts_dir = "ego_scripts"         # 根目录下的独立 JS 文件，修改后无需重新编译 Go
-operation_timeout = "30s"
-submit_timeout = "60s"
-cleanup_timeout = "30s"
-session_idle_timeout = "30m"        # 只回收没有活动任务的本地会话绑定
-
-[ego.healthcheck]
-interval = "30m"                    # 无消息页面检查，仅在空闲槽执行
-smoke_enabled = false               # 开启后会发送测试消息并消耗账号额度
-smoke_interval = "6h"
-smoke_model = "web/gpt-6"
-smoke_workspace_id = "smoke"
-
-[[models]]
-id = "web/gpt-6"
-enabled = true
-backend = "web"
-target_model = "gpt-6"               # 内部语义标识，不是私有接口 slug
-
-[[models]]
-id = "web/gpt-5.6-sol"
-enabled = true
-backend = "web"
-target_model = "gpt-5.6-sol"
+max_concurrency = 2                # 每个活动执行槽独占一个 Ego Space
+queue_capacity = 20                # 等待队列上限，不含活动任务
+timeout = "30m"                    # 总期限，包含排队、执行和等待审批
 
 [dots]
-enabled = false                     # 注册 dots 模型的必要条件
-dot_id = ""                         # 启用时填写实际 Dot 身份
-max_concurrency = 1                 # 同一 Dot 首版只能为 1
-claim_timeout = "2m"
-lease_duration = "2m"
-
-[executor]
-max_file_bytes = 2097152
-max_command_output_bytes = 65536
-command_timeout = "2m"              # 命令本身的执行上限；长命令启动后异步查询
+enabled = false
+dot_id = ""                        # 开启时填写；同一 Dot 固定串行执行
 
 [[workspaces]]
 id = "default"
 root = "/absolute/path/to/your/project"
-create_if_missing = false
-chatgpt_project_id = ""             # 空表示普通聊天；填写后必须验证项目归属
+chatgpt_project_id = ""             # 空为普通聊天；非空必须校验项目归属
 read_only = false
 allow_commands = false
 
-[[workspaces]]
-id = "smoke"                       # 内部冒烟专用，不在示例 API key 授权范围内
-root = "runtime/smoke"              # 项目根目录内的专用测试区
-create_if_missing = true
-chatgpt_project_id = ""
-read_only = false
-allow_commands = false
+[log]
+max_size_mb = 20
+max_backups = 10
