@@ -1,14 +1,13 @@
-# 本地 MCP + API 网关：前面固定使用 Nginx，Go 只监听本机 HTTP。
+# 本地单进程网关：Nginx 提供 API 入口；MCP 通过内嵌官方 Tunnel SDK 出站连接。
 # 配置设计样例，部署时复制为 mcp-gateway.toml 并填写实际值。
 
 [server]
 listen = "127.0.0.1:8788"
 api_key = "REPLACE_WITH_API_KEY"
 
-[relay]
-url = "wss://mcp.example.com/agent"
-device_id = "local-01"
-token = "REPLACE_WITH_DEVICE_TOKEN" # 与公网代理中对应设备的 token 一致
+[tunnel]
+id = "REPLACE_WITH_TUNNEL_ID"
+api_key = "REPLACE_WITH_RUNTIME_API_KEY" # Platform Tunnels Read + Use；不同于上面的 API key
 
 [tasks]
 max_concurrency = 2                # 每个活动执行槽独占一个 Ego Space
