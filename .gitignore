@@ -1,0 +1,6 @@
+/bin/
+/runtime/
+/config/mcp-gateway.toml
+*.test
+coverage.out
+.DS_Store

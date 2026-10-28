@@ -1,5 +1,5 @@
 # 本地单进程网关：Nginx 提供 API 入口；MCP 通过内嵌官方 Tunnel SDK 出站连接。
-# 配置设计样例，部署时复制为 mcp-gateway.toml 并填写实际值。
+# 部署时复制为 mcp-gateway.toml 并填写实际值；占位符会拒绝启动。
 
 [server]
 listen = "127.0.0.1:8788"

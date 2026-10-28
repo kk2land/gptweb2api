@@ -1,7 +1,7 @@
 # 单进程 gateway 与精简 TOML 配置
 
 - 日期：2026-10-28（Asia/Shanghai）
-- 状态：设计与样例，程序、Tunnel 注册和启动脚本尚未由本项目完成。
+- 状态：配置加载、网关与启动脚本已实现并进行离线验证；Tunnel 注册、Ego 页面与真实账号验收尚未完成。见 [实施与验证记录](implementation-status.md)。
 - 主方案：[技术方案与实施计划](implementation-plan.md)
 
 ## 1. 部署方式
