@@ -22,6 +22,17 @@ sh sbin/mcp-gateway.sh restart
 
 脚本从自身位置确定项目根目录；二进制固定放在 `bin/`。配置只读取 `config/mcp-gateway.toml`，不提供环境变量覆盖或第二套高级配置。未知字段、占位符、无效期限和非回环监听均拒绝启动。修改配置后排空并重启。直接运行二进制时应使用绝对路径，以便启停脚本通过 `ps` 校验进程命令与启动时间。
 
+Ego Space 名称可以在同一份 TOML 中配置：
+
+```toml
+[ego]
+space_name = "我的 Space"
+```
+
+首个槽使用 `我的 Space`，后续并发槽使用 `我的 Space-1`、`我的 Space-2`。存在唯一同名 Space 时复用其 ID，不存在时创建；普通用户 Space 会在首次选用时转为代理控制，保留名称与已有标签页。重名无法唯一定位、Profile 不匹配或用户接管已绑定 Space 时停止操作，不改用其他 Space。只需一个 Space 时设 `tasks.max_concurrency = 1`。
+
+省略 `[ego]` 或将 `space_name` 留空，沿用原来的默认名称 `gptweb2api-slot-0`、`gptweb2api-slot-1`，不会自动猜测 Ego 当前窗口。要使用 Ego 中已有的默认 Space，填写它实际显示的名称。更改名称后排空并重启，重新选择 Space，不沿用旧槽的页面 ID；之前的 Space 不会被重命名或删除。
+
 Nginx 配置参考 [nginx.example.conf](config/nginx.example.conf)，放入已有的 HTTPS server 块。Go 只监听回环 HTTP；MCP 不经 Nginx，没有另开的 MCP 端口、relay 或 stdio MCP 子进程。
 
 ## 连接 ChatGPT

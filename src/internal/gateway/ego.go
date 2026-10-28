@@ -129,10 +129,11 @@ type EgoExecutor struct {
 	pluginID     string
 	store        *Store
 	slotRequests map[int]string
+	spaceName    string
 }
 
-func NewEgo(root string, log *slog.Logger) *EgoExecutor {
-	return &EgoExecutor{Root: root, Runner: CLIRunner{}, Log: log, slots: map[int]Binding{}, quarantined: map[int]bool{}, slotRequests: map[int]string{}}
+func NewEgo(root string, log *slog.Logger, spaceName string) *EgoExecutor {
+	return &EgoExecutor{Root: root, Runner: CLIRunner{}, Log: log, slots: map[int]Binding{}, quarantined: map[int]bool{}, slotRequests: map[int]string{}, spaceName: spaceName}
 }
 
 type egoState struct {
@@ -141,6 +142,7 @@ type egoState struct {
 	Quarantined map[int]bool
 	Requests    map[int]string
 	PluginID    string
+	SpaceName   string
 }
 
 func (e *EgoExecutor) Restore(store *Store) error {
@@ -162,8 +164,14 @@ func (e *EgoExecutor) Restore(store *Store) error {
 	if state.Slots == nil || state.Quarantined == nil || state.Requests == nil {
 		return fmt.Errorf("invalid persisted Ego identity")
 	}
-	e.profile, e.slots, e.quarantined, e.slotRequests = state.Profile, state.Slots, state.Quarantined, state.Requests
+	e.profile = state.Profile
 	e.pluginID = state.PluginID
+	if state.SpaceName != e.spaceName {
+		// A new selector must not silently keep using the previous Space/page.
+		// Preserve the account/plugin identity; leave previous browser tabs alone.
+		return e.saveLocked()
+	}
+	e.slots, e.quarantined, e.slotRequests = state.Slots, state.Quarantined, state.Requests
 	for slot, binding := range e.slots {
 		if binding.PageID != "" {
 			e.quarantined[slot] = true
@@ -175,7 +183,7 @@ func (e *EgoExecutor) saveLocked() error {
 	if e.store == nil {
 		return nil
 	}
-	b, err := json.Marshal(egoState{Profile: e.profile, Slots: e.slots, Quarantined: e.quarantined, Requests: e.slotRequests, PluginID: e.pluginID})
+	b, err := json.Marshal(egoState{Profile: e.profile, Slots: e.slots, Quarantined: e.quarantined, Requests: e.slotRequests, PluginID: e.pluginID, SpaceName: e.spaceName})
 	if err != nil {
 		return err
 	}
@@ -185,7 +193,16 @@ func (e *EgoExecutor) saveLocked() error {
 func (e *EgoExecutor) base(slot int) map[string]any {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return map[string]any{"slot": slot, "binding": e.slots[slot], "profile_id": e.profile, "space_name": fmt.Sprintf("gptweb2api-slot-%d", slot), "request_id": e.slotRequests[slot], "plugin_id": e.pluginID}
+	return map[string]any{"slot": slot, "binding": e.slots[slot], "profile_id": e.profile, "space_name": e.nameForSlot(slot), "reuse_space": e.spaceName != "", "request_id": e.slotRequests[slot], "plugin_id": e.pluginID}
+}
+func (e *EgoExecutor) nameForSlot(slot int) string {
+	if e.spaceName == "" {
+		return fmt.Sprintf("gptweb2api-slot-%d", slot)
+	}
+	if slot == 0 {
+		return e.spaceName
+	}
+	return fmt.Sprintf("%s-%d", e.spaceName, slot)
 }
 func callBound(ctx context.Context, runner ScriptRunner, s *ScriptSet, op string, input map[string]any) (EgoResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, 45*time.Second)
@@ -459,6 +476,16 @@ func (e *EgoExecutor) provision(ctx context.Context, s *ScriptSet, slot int, pag
 			return Binding{}, fault("ego_protocol_error", "incomplete Ego identity", 503)
 		}
 		e.mu.Lock()
+		if previous := e.slots[slot]; previous.SpaceID > 0 && previous.SpaceID != binding.SpaceID {
+			e.mu.Unlock()
+			return Binding{}, fault("space_binding_changed", "Ego returned a different Space for an already bound slot", 503)
+		}
+		for other, b := range e.slots {
+			if other != slot && b.SpaceID == binding.SpaceID {
+				e.mu.Unlock()
+				return Binding{}, fault("space_binding_conflict", "different execution slots cannot share a Space", 503)
+			}
+		}
 		if e.profile != "" && binding.ProfileID != e.profile {
 			e.mu.Unlock()
 			return Binding{}, fault("profile_mismatch", "Ego profile changed", 503)

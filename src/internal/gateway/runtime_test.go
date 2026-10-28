@@ -22,22 +22,34 @@ func TestConfigStrictAndSecretSafe(t *testing.T) {
 		t.Fatal(err)
 	}
 	good := strings.NewReplacer("REPLACE_WITH_API_KEY", "client-local-test", "REPLACE_WITH_TUNNEL_ID", "tunnel_localtestaaaaaaaaaaaaaaaaaaaaaaa", "REPLACE_WITH_RUNTIME_API_KEY", "runtime-local-test").Replace(string(b))
+	egoStart := strings.Index(good, "[ego]")
+	egoEnd := egoStart + strings.Index(good[egoStart:], "[dots]")
+	withoutEgo := good[:egoStart] + good[egoEnd:]
 	for _, test := range []struct {
 		name, text string
 		valid      bool
 	}{
 		{"valid", good, true}, {"placeholders", string(b), false}, {"unknown", good + "\nunknown_field=1\n", false}, {"public listen", strings.Replace(good, "127.0.0.1", "0.0.0.0", 1), false}, {"zero concurrency", strings.Replace(good, "max_concurrency = 2", "max_concurrency = 0", 1), false}, {"invalid duration", strings.Replace(good, `timeout = "30m"`, `timeout = "never"`, 1), false}, {"wrong field type", strings.Replace(good, `api_key = "client-local-test"`, `api_key = 123`, 1), false}, {"parse secret", strings.Replace(good, `"runtime-local-test"`, `runtime-secret-do-not-print`, 1), false},
+		{"legacy config without ego", withoutEgo, true},
+		{"named Space", strings.Replace(good, `space_name = ""`, `space_name = "我的 Space"`, 1), true},
+		{"wrong Space type", strings.Replace(good, `space_name = ""`, `space_name = 123`, 1), false},
+		{"Space control character", strings.Replace(good, `space_name = ""`, `space_name = "one\ntwo"`, 1), false},
+		{"Space name too long", strings.Replace(good, `space_name = ""`, `space_name = "`+strings.Repeat("界", 129)+`"`, 1), false},
+		{"unknown ego option", strings.Replace(good, "[ego]", "[ego]\nunknown_option=true", 1), false},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			root := t.TempDir()
 			_ = os.Mkdir(filepath.Join(root, "config"), 0700)
 			_ = os.WriteFile(filepath.Join(root, "config/mcp-gateway.toml"), []byte(test.text), 0600)
-			_, err := LoadConfig(root)
+			cfg, err := LoadConfig(root)
 			if (err == nil) != test.valid {
 				t.Fatalf("valid=%v error=%v", test.valid, err)
 			}
 			if err != nil && (strings.Contains(err.Error(), "runtime-secret") || strings.Contains(err.Error(), "runtime-local-test") || strings.Contains(err.Error(), "client-local-test")) {
 				t.Fatal("credential appeared in error")
+			}
+			if test.name == "named Space" && cfg.Ego.SpaceName != "我的 Space" {
+				t.Fatal("configured Space name was not loaded")
 			}
 		})
 	}

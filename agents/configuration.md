@@ -41,12 +41,24 @@ Nginx 继续提供兼容 API 的 HTTPS 入口，转发给本机 HTTP。ChatGPT �
 | server | listen、api_key | Nginx 上游地址、调用方认证 |
 | tunnel | id、api_key | OpenAI Tunnel ID、runtime API key |
 | tasks | max_concurrency、queue_capacity、timeout | Space 并发、等待队列和任务总期限 |
+| ego（可选） | space_name | 指定 Space 基础名称；空值沿用默认命名 |
 | dots | enabled | 是否开放已完成事件验收的 dots 模型 |
 | log | max_size_mb、max_backups | 日志大小与历史份数 |
 
 两处 api_key 是不同凭据：server.api_key 给 API 调用方使用，tunnel.api_key 仅供内嵌 SDK 访问 OpenAI 控制面，不能互换。实际值由部署配置填写，不提交仓库、不写提示词或日志。缺失或仍为占位符时拒绝启动。
 
-只读取这一份 TOML。未知字段、错误类型、非正限制和无效时长明确报错；不增加隐藏环境变量、TLS、Ego、PID、路径、设备路由、OAuth issuer 或高级覆盖层配置，变更经排空与重启生效。
+只读取这一份 TOML。未知字段、错误类型、非正限制和无效时长明确报错；不增加隐藏环境变量、TLS、PID、路径、设备路由、OAuth issuer 或高级覆盖层配置，变更经排空与重启生效。Ego 仅增加用户要求的可选 Space 名称，不开放 CLI、脚本路径或 Profile 覆盖配置。
+
+```toml
+[ego]
+space_name = "我的 Space"
+```
+
+名称去除首尾空白后最多 128 个字符，不允许控制字符。首槽使用原名，其余槽追加 `-1`、`-2`，每个活动槽仍独占一个不同的数字 Space ID。单 Space 使用场景将 `tasks.max_concurrency` 设为 1。
+
+指定名称时，在已绑定 Profile 范围内匹配唯一同名 Space；首次尚未绑定 Profile 时，名称必须能唯一定位。普通用户 Space 经原生 `claimTaskSpace(id)` 取得控制，保留其名称和标签页；代理 Space 直接复用。选择后持久化数字 ID，显示名被修改不会导致任务转到另一个同名 Space。用户接管后不自动夺回控制；重名、身份不符或多个槽返回同一 ID 均明确失败。
+
+省略本节或 `space_name = ""` 保留兼容默认值：`gptweb2api-slot-0`、`gptweb2api-slot-1`。这不是自动选择 Ego 当前窗口；使用浏览器已有的默认 Space 时应填其实际显示名。改变配置并重启后清除旧槽的页面路由，保留账号/插件身份，按新名称重新定位，不重命名或删除旧 Space。
 
 ## 4. Tunnel 初次接入
 

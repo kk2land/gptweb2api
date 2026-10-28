@@ -1,14 +1,6 @@
 async function operation(input) {
   initCDP();
-  let b=input.binding||{};
-  if (!b.space_id) {
-    const spaces=checked(await ego.listTaskSpaces()).taskSpaces;
-    if (spaces.some(s=>s.name===input.space_name)) fail('space_requires_reconciliation');
-    const created=checked(await ego.createTaskSpace(input.space_name,input.profile_id||undefined));
-    const space=checked(await ego.listTaskSpaces()).taskSpaces.find(s=>s.id===created.id);
-    if(!space?.profileId)fail('profile_unverified');
-    b={space_id:created.id,profile_id:space.profileId,page_id:'',conversation_id:''};
-  }
+  const b=await ensureTaskSpace(input);
   ego.useTaskSpace(b.space_id);
   if(!b.page_id)b.page_id=checked(await ego.createTab('https://chatgpt.com/')).targetId;
   const page=await connect({...input,binding:b});

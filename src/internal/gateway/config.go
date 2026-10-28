@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
 	sdkconfig "github.com/openai/tunnel-client/pkg/config"
@@ -28,6 +30,9 @@ type Config struct {
 		QueueCapacity  int    `toml:"queue_capacity"`
 		Timeout        string `toml:"timeout"`
 	} `toml:"tasks"`
+	Ego struct {
+		SpaceName string `toml:"space_name"`
+	} `toml:"ego"`
 	Dots struct {
 		Enabled bool `toml:"enabled"`
 	} `toml:"dots"`
@@ -82,6 +87,10 @@ func LoadConfig(root string) (Config, error) {
 	}
 	if c.Log.MaxSizeMB > 1<<20 || c.Log.MaxBackups > 10000 || c.Tasks.MaxConcurrency > 1024 || c.Tasks.QueueCapacity > 100000 {
 		return c, errors.New("task or log limit exceeds implementation capacity")
+	}
+	c.Ego.SpaceName = strings.TrimSpace(c.Ego.SpaceName)
+	if !utf8.ValidString(c.Ego.SpaceName) || utf8.RuneCountInString(c.Ego.SpaceName) > 128 || strings.ContainsFunc(c.Ego.SpaceName, unicode.IsControl) {
+		return c, errors.New("ego.space_name must be at most 128 characters without control characters")
 	}
 	c.TaskTimeout, err = time.ParseDuration(c.Tasks.Timeout)
 	if err != nil || c.TaskTimeout <= 0 {

@@ -1,7 +1,43 @@
-// Native EgoBindings contract: citrolabs/ego-lite wiki, 2026-08-29 revision.
+// Native EgoBindings contract: citrolabs/ego-lite docs/native-bindings-api.md.
 // Loaded once per execution attempt. No external modules or private HTTP APIs.
 function fail(code) { const e = new Error(code); e.code = code; throw e; }
 function checked(value) { if (value?.error) fail(value.error_code || 'ego_operation_failed'); return value; }
+async function ensureTaskSpace(input) {
+  if (!globalThis.ego) fail('ego_bindings_missing');
+  let b={...(input.binding||{})};
+  let spaces=checked(await ego.listTaskSpaces()).taskSpaces;
+  if(!Array.isArray(spaces))fail('space_list_unavailable');
+  if(b.space_id){
+    const space=spaces.find(s=>s.id===b.space_id);
+    if(!space||space.ownership!=='agent'||space.profileId!==b.profile_id||(input.profile_id&&space.profileId!==input.profile_id))fail('space_binding_changed');
+    return b;
+  }
+  if(typeof input.space_name!=='string'||!input.space_name.trim())fail('space_name_required');
+  const named=spaces.filter(s=>s.name===input.space_name);
+  const matches=input.profile_id?named.filter(s=>s.profileId===input.profile_id):named;
+  if(matches.length>1)fail('space_name_ambiguous');
+  if(!matches.length&&named.length)fail('profile_mismatch');
+  let id;
+  if(matches.length){
+    if(!input.reuse_space)fail('space_requires_reconciliation');
+    const space=matches[0];
+    if(space.ownership==='user'){
+      // An explicit configured name authorizes use of that regular Space.
+      // Omit the optional name argument so the browser never renames it.
+      const claimed=checked(await ego.claimTaskSpace(space.id));
+      if(claimed.id!==space.id)fail('space_binding_changed');
+    }else if(space.ownership!=='agent')fail('space_user_in_control');
+    id=space.id;
+  }else{
+    const created=checked(input.profile_id?await ego.createTaskSpace(input.space_name,input.profile_id):await ego.createTaskSpace(input.space_name));
+    id=created.id;
+  }
+  spaces=checked(await ego.listTaskSpaces()).taskSpaces;
+  const space=spaces.find(s=>s.id===id);
+  if(!Number.isSafeInteger(id)||id<=0||!space?.profileId||space.ownership!=='agent')fail('space_identity_unverified');
+  if(input.profile_id&&space.profileId!==input.profile_id)fail('profile_mismatch');
+  return {space_id:id,profile_id:space.profileId,page_id:'',conversation_id:''};
+}
 const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
 let nextCDPID = 1;
 const cdpPending = new Map();

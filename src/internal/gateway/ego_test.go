@@ -23,7 +23,7 @@ func TestUncertainEgoSubmissionNeverReplaysTask(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ego := NewEgo(root, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	ego := NewEgo(root, slog.New(slog.NewTextHandler(io.Discard, nil)), "")
 	var mu sync.Mutex
 	calls := map[string]int{}
 	hash := ""
@@ -91,7 +91,7 @@ func TestScriptSnapshotAndPersistentEgoIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	e := NewEgo(root, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	e := NewEgo(root, slog.New(slog.NewTextHandler(io.Discard, nil)), "")
 	if err = e.Restore(s); err != nil {
 		t.Fatal(err)
 	}
@@ -105,11 +105,85 @@ func TestScriptSnapshotAndPersistentEgoIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	restarted := NewEgo(root, e.Log)
+	restarted := NewEgo(root, e.Log, "")
 	if err = restarted.Restore(s); err != nil {
 		t.Fatal(err)
 	}
 	if restarted.profile != "profile-1" || restarted.pluginID != "plugin-1" || restarted.slots[0].SpaceID != 7 || !restarted.quarantined[0] {
 		t.Fatal("restart did not preserve and quarantine browser identity")
+	}
+}
+
+func TestConfiguredSpaceNamesAndSelectionChange(t *testing.T) {
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	for _, test := range []struct {
+		configured string
+		slot       int
+		want       string
+	}{{"", 0, "gptweb2api-slot-0"}, {"", 2, "gptweb2api-slot-2"}, {"我的 Space", 0, "我的 Space"}, {"我的 Space", 1, "我的 Space-1"}} {
+		e := NewEgo(t.TempDir(), log, test.configured)
+		input := e.base(test.slot)
+		if input["space_name"] != test.want || input["reuse_space"] != (test.configured != "") {
+			t.Fatal(input)
+		}
+	}
+	s, err := OpenStore(filepath.Join(t.TempDir(), "state.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	previous := NewEgo(t.TempDir(), log, "old Space")
+	if err = previous.Restore(s); err != nil {
+		t.Fatal(err)
+	}
+	previous.mu.Lock()
+	previous.profile = "profile-1"
+	previous.pluginID = "plugin-1"
+	previous.slots[0] = Binding{SpaceID: 7, PageID: "old-page", ProfileID: "profile-1"}
+	previous.slotRequests[0] = "old-request"
+	err = previous.saveLocked()
+	previous.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	same := NewEgo(t.TempDir(), log, "old Space")
+	if err = same.Restore(s); err != nil {
+		t.Fatal(err)
+	}
+	if same.slots[0].SpaceID != 7 {
+		t.Fatal("unchanged selection lost its pinned ID")
+	}
+	changed := NewEgo(t.TempDir(), log, "new Space")
+	if err = changed.Restore(s); err != nil {
+		t.Fatal(err)
+	}
+	if len(changed.slots) != 0 || len(changed.slotRequests) != 0 || changed.profile != "profile-1" || changed.pluginID != "plugin-1" {
+		t.Fatal("configuration change retained old routing or lost account identity")
+	}
+	again := NewEgo(t.TempDir(), log, "new Space")
+	if err = again.Restore(s); err != nil {
+		t.Fatal(err)
+	}
+	if len(again.slots) != 0 {
+		t.Fatal("old Space routing returned after another restart")
+	}
+}
+
+func TestEgoSlotsCannotShareOrRetargetSpace(t *testing.T) {
+	e := NewEgo(t.TempDir(), slog.New(slog.NewTextHandler(io.Discard, nil)), "configured")
+	id := 7
+	e.Runner = runnerFunc(func(context.Context, *ScriptSet, string, map[string]any) (EgoResult, error) {
+		return EgoResult{OK: true, Binding: Binding{SpaceID: id, ProfileID: "profile-1"}}, nil
+	})
+	if _, err := e.provision(context.Background(), &ScriptSet{}, 0, false); err != nil {
+		t.Fatal(err)
+	}
+	_, err := e.provision(context.Background(), &ScriptSet{}, 1, false)
+	code(t, err, "space_binding_conflict")
+	id = 8
+	_, err = e.provision(context.Background(), &ScriptSet{}, 0, false)
+	code(t, err, "space_binding_changed")
+	if e.slots[0].SpaceID != 7 || e.slots[1].SpaceID != 0 {
+		t.Fatal("rejected selection changed slot routing")
 	}
 }
